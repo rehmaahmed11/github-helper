@@ -86,9 +86,13 @@ object SafHelper {
                 headSha = ref.body()?.obj?.sha
                     ?: return OpResult.Failure("GitHub returned no commit for branch `$base`.")
             }
-            // A brand-new repository has no commits: the first commit creates the default branch.
+            // A brand-new repository has no commits, so the first commit has to create the
+            // default branch itself. Ask GitHub what that name is rather than trusting the
+            // cached repo list: an account whose default is `master` must not get a `main`.
             ref.code() == 404 -> {
-                branch = base
+                val fresh = runCatching { r.getRepo(owner, repo) }.getOrNull()
+                val named = if (fresh != null && fresh.isSuccessful) fresh.body()?.defaultBranch else null
+                branch = named ?: base
                 headSha = null
             }
             else -> return OpResult.Failure("Could not read branch `$base`: ${ref.githubError()}")
