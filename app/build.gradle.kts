@@ -1,3 +1,7 @@
+// Must be imported: inside a Gradle Kotlin DSL script, `java` resolves to the
+// JavaPluginExtension (Project.java), so `java.util.Properties` does not resolve.
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
