@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Platform NoActionBar themes rather than Material3/AppCompat: this app has
+      no View-based UI. The dark variant lives in values-night, so Compose's
+      MaterialTheme follows the system setting.
+
+      Note: android:Theme.DeviceDefault.DayNight would be tidier but only exists
+      from API 29, and this app supports API 26.
+    -->
+    <style name="Theme.GitHubDesktop" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

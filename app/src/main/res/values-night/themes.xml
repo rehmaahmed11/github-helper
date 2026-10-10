@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark counterpart of values/themes.xml, selected by the system night mode. -->
+    <style name="Theme.GitHubDesktop" parent="android:Theme.Material.NoActionBar" />
+</resources>
