@@ -26,6 +26,8 @@ fun RepoListScreen(
 ) {
     val repos by vm.repos.collectAsState()
     val loading by vm.loading.collectAsState()
+    val creating by vm.creating.collectAsState()
+    val createError by vm.createError.collectAsState()
     val snackbar = rememberResultSnackbarHost(vm)
     var query by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
@@ -96,7 +98,14 @@ fun RepoListScreen(
 
     if (showCreate) {
         CreateRepoDialog(
-            onDismiss = { showCreate = false },
+            busy = creating,
+            error = createError,
+            onDismiss = {
+                if (!creating) {
+                    vm.clearCreateError()
+                    showCreate = false
+                }
+            },
             onCreate = { name, desc, priv ->
                 vm.createRepo(name, desc, priv) { showCreate = false }
             }
@@ -120,11 +129,28 @@ fun RepoListScreen(
     }
 }
 
+/** GitHub repo names: letters, digits, '-', '_', '.'; no spaces. */
+private val REPO_NAME = Regex("^[A-Za-z0-9._-]{1,100}$")
+
 @Composable
-fun CreateRepoDialog(onDismiss: () -> Unit, onCreate: (String, String?, Boolean) -> Unit) {
+fun CreateRepoDialog(
+    busy: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onCreate: (String, String?, Boolean) -> Unit
+) {
     var name by remember { mutableStateOf("") }
     var desc by remember { mutableStateOf("") }
     var priv by remember { mutableStateOf(false) }
+
+    // Spaces are not allowed in repo names; turn them into '-' as the user types.
+    val cleanName = name.trim()
+    val nameValid = REPO_NAME.matches(cleanName)
+    val nameHint = when {
+        cleanName.isEmpty() -> "Letters, numbers, - _ . (spaces become -)"
+        !nameValid -> "Only letters, numbers, - _ . are allowed (max 100)"
+        else -> null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -132,29 +158,54 @@ fun CreateRepoDialog(onDismiss: () -> Unit, onCreate: (String, String?, Boolean)
         text = {
             Column {
                 OutlinedTextField(
-                    value = name, onValueChange = { name = it },
-                    label = { Text("Name") }, modifier = Modifier.fillMaxWidth()
+                    value = name,
+                    onValueChange = { name = it.replace(' ', '-') },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    enabled = !busy,
+                    isError = cleanName.isNotEmpty() && !nameValid,
+                    supportingText = { nameHint?.let { Text(it) } },
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = desc, onValueChange = { desc = it },
                     label = { Text("Description (optional)") },
+                    enabled = !busy,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = priv, onCheckedChange = { priv = it })
+                    Switch(
+                        checked = priv,
+                        onCheckedChange = { priv = it },
+                        enabled = !busy
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Text("Private")
+                    Text(if (priv) "Private" else "Public")
+                }
+                if (busy) {
+                    Spacer(Modifier.height(12.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(4.dp))
+                    Text("Creating repository…", style = MaterialTheme.typography.bodySmall)
+                }
+                error?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error)
                 }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = name.isNotBlank(),
-                onClick = { onCreate(name.trim(), desc.trim().ifBlank { null }, priv) }
-            ) { Text("Create") }
+                enabled = nameValid && !busy,
+                onClick = {
+                    onCreate(cleanName, desc.trim().ifBlank { null }, priv)
+                }
+            ) { Text(if (busy) "Creating…" else "Create") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") }
+        }
     )
 }

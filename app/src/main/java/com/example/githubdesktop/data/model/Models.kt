@@ -68,6 +68,10 @@ data class BranchCommit(val sha: String, val url: String)
 
 data class CreateRefBody(val ref: String, val sha: String)
 
+data class GitRef(val ref: String, @SerializedName("object") val obj: GitObject)
+
+data class GitObject(val sha: String, val type: String?)
+
 data class MergeBody(
     val base: String,
     val head: String,

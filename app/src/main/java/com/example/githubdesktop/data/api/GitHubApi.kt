@@ -61,11 +61,22 @@ interface GitHubApi {
         @Body body: DeleteFileBody
     ): Response<ResponseBody>
 
-    @GET("repos/{owner}/{repo}/branches")
+    @GET("repos/{owner}/{repo}/branches?per_page=100")
     suspend fun listBranches(
         @Path("owner") owner: String,
         @Path("repo") repo: String
     ): Response<List<Branch>>
+
+    /**
+     * Exact lookup of one branch. Unlike [listBranches] it is not paginated, so
+     * it still finds the base branch when the repo has hundreds of branches.
+     */
+    @GET("repos/{owner}/{repo}/git/ref/heads/{branch}")
+    suspend fun getBranchRef(
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Path("branch", encoded = true) branch: String
+    ): Response<GitRef>
 
     @POST("repos/{owner}/{repo}/git/refs")
     suspend fun createRef(

@@ -8,6 +8,8 @@ import com.example.githubdesktop.data.model.Branch
 import com.example.githubdesktop.data.model.ContentItem
 import com.example.githubdesktop.data.model.Repo
 import com.example.githubdesktop.data.model.User
+import com.example.githubdesktop.ui.util.OpResult
+import com.example.githubdesktop.ui.util.TransferProgress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -24,6 +26,15 @@ class AppViewModel(
 
     /** Set by successful operations, for the same reason. */
     val notice = MutableStateFlow<String?>(null)
+
+    /** Active upload/download, shown as a progress bar. Null when idle. */
+    val progress = MutableStateFlow<TransferProgress?>(null)
+
+    /** True while a repository is being created. */
+    val creating = MutableStateFlow(false)
+
+    /** Shown inside the New repository dialog so the reason is visible. */
+    val createError = MutableStateFlow<String?>(null)
 
     val contents = MutableStateFlow<List<ContentItem>>(emptyList())
     val branches = MutableStateFlow<List<Branch>>(emptyList())
@@ -72,19 +83,49 @@ class AppViewModel(
         }
     }
 
+    fun clearCreateError() {
+        createError.value = null
+    }
+
     fun createRepo(name: String, desc: String?, private: Boolean, onDone: () -> Unit) {
         viewModelScope.launch {
+            creating.value = true
+            createError.value = null
             try {
                 val r = repo.createRepo(name, desc, private)
                 if (r.isSuccessful) {
+                    notice.value = "Created `$name`."
                     onDone()
                     loadUserAndRepos()
                 } else {
-                    error.value = "Could not create `$name`: ${r.githubError()}"
+                    createError.value = "Could not create `$name`: ${r.githubError()}"
                 }
             } catch (e: Exception) {
-                error.value = e.message ?: "Could not create `$name`."
+                createError.value = "Could not create `$name`: ${e.message ?: "network error"}"
+            } finally {
+                creating.value = false
             }
+        }
+    }
+
+    /**
+     * Runs an upload or download with a progress bar. [work] receives a
+     * `report` callback; [onResult] gets the outcome on the main thread.
+     */
+    fun runTransfer(
+        work: suspend (report: (TransferProgress) -> Unit) -> OpResult,
+        onResult: (OpResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            progress.value = TransferProgress("Starting…", null)
+            val result = try {
+                work { progress.value = it }
+            } catch (e: Exception) {
+                OpResult.Failure(e.message ?: "Operation failed.")
+            } finally {
+                progress.value = null
+            }
+            onResult(result)
         }
     }
 
