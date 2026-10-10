@@ -50,11 +50,21 @@ jobs:
           test -f ./gradle/wrapper/gradle-wrapper.jar || { echo "::error::gradle-wrapper.jar is missing."; exit 1; }
           chmod +x ./gradlew
 
-      # pipefail so `| tee` cannot mask Gradle's exit status.
+      # Gradle's console output is not visible in every environment (job logs and
+      # artifacts may be unreachable), so on failure the interesting lines are
+      # re-published as workflow commands, which surface as check annotations.
       - name: Build debug APK
         run: |
-          set -o pipefail
-          ./gradlew assembleDebug --stacktrace 2>&1 | tee "$RUNNER_TEMP/assembleDebug.log"
+          log="$RUNNER_TEMP/assembleDebug.log"
+          if ./gradlew assembleDebug --stacktrace > "$log" 2>&1; then
+            tail -n 15 "$log"
+          else
+            echo "::error title=assembleDebug::assembleDebug FAILED - see annotations below"
+            tail -n 80 "$log" | grep -v '^[[:space:]]*$' | head -45 | while IFS= read -r line; do
+              echo "::error title=assembleDebug::${line}"
+            done
+            exit 1
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -65,8 +75,16 @@ jobs:
 
       - name: Lint
         run: |
-          set -o pipefail
-          ./gradlew lintDebug --stacktrace 2>&1 | tee "$RUNNER_TEMP/lintDebug.log"
+          log="$RUNNER_TEMP/lintDebug.log"
+          if ./gradlew lintDebug --stacktrace > "$log" 2>&1; then
+            tail -n 15 "$log"
+          else
+            echo "::error title=lintDebug::lintDebug FAILED - see annotations below"
+            tail -n 80 "$log" | grep -v '^[[:space:]]*$' | head -45 | while IFS= read -r line; do
+              echo "::error title=lintDebug::${line}"
+            done
+            exit 1
+          fi
 
       # Always published so a red build can be diagnosed from the artifacts
       # alone, without digging through the job log.
