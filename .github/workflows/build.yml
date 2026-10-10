@@ -10,6 +10,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The rolling debug release below uploads an asset; without this the token is
+    # read-only and the upload answers 403 - the same trap this repo's app keeps
+    # having to explain to its users.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -97,6 +102,38 @@ jobs:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # Actions artifacts expire and need the Actions UI to reach, which is a poor way to
+      # hand someone an APK. A fixed prerelease ("apk-debug") with a stable asset name gives
+      # one tappable link that always points at the newest main build. continue-on-error keeps
+      # a permission problem on the runner from turning a green build red.
+      - name: Publish debug APK to the rolling prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          if [ -z "$apk" ]; then echo "::error title=release::no APK to publish"; exit 1; fi
+          cp "$apk" GitHubHelper-debug.apk
+          notes="Debug build of the current main (${{ github.sha }}), rebuilt on every push.
+
+          To install: download the .apk, allow 'install unknown apps' for the browser or
+          file manager you used, open the file. It is debug-signed, so it upgrades over a
+          previous install made by the same CI key; an install signed with a different debug
+          key must be uninstalled first.
+
+          A 403 on create-repo / upload is a token problem, not an APK problem: see the
+          'Access check' screen (the i in the toolbar) and README 'Why 403'."
+          if gh release view apk-debug --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload apk-debug --repo "$GITHUB_REPOSITORY" --clobber GitHubHelper-debug.apk
+            gh release edit apk-debug --repo "$GITHUB_REPOSITORY" --notes "$notes"
+          else
+            gh release create apk-debug --repo "$GITHUB_REPOSITORY" --title "Debug APK (rolling)" \
+              --prerelease --notes "$notes" GitHubHelper-debug.apk
+          fi
+          echo "Installed from: https://github.com/$GITHUB_REPOSITORY/releases/download/apk-debug/GitHubHelper-debug.apk"
 
       - name: Lint
         run: |

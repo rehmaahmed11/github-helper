@@ -10,8 +10,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.lifecycleScope
 import com.example.githubdesktop.auth.OAuthManager
 import com.example.githubdesktop.auth.TokenStore
+import com.example.githubdesktop.data.api.FailureKind
 import com.example.githubdesktop.data.api.GitHubClient
-import com.example.githubdesktop.data.api.githubError
+import com.example.githubdesktop.data.api.toGitHubFailure
 import com.example.githubdesktop.ui.AppViewModel
 import com.example.githubdesktop.ui.screens.LoginScreen
 import com.example.githubdesktop.ui.screens.RootNav
@@ -129,12 +130,18 @@ class MainActivity : ComponentActivity() {
                     val login = res.body()?.login ?: "user"
                     tokenStore.saveToken(token, login)
                     loggedIn.value = true
+                    // Measures the token instead of assuming it: a token that can read but not
+                    // write is the single most common cause of "403 on every upload", and the
+                    // user learns that here rather than after the first failed push.
+                    vm.refreshAccess()
                 } else {
                     GitHubClient.setToken(null)
-                    loginError.value = if (res.code() == 401) {
-                        "That token was rejected. Check it has the repo scope and has not expired."
-                    } else {
-                        "Token sign-in failed: ${res.githubError()}"
+                    val failure = res.toGitHubFailure("GitHub rejected this token")
+                    loginError.value = when (failure.kind) {
+                        FailureKind.TokenInvalid ->
+                            "That token was rejected - it has expired, been revoked, or belongs " +
+                                "to another host. ${failure.fix}"
+                        else -> "Token sign-in failed: ${failure.render()}. ${failure.fix}"
                     }
                 }
             } finally {
@@ -179,6 +186,7 @@ class MainActivity : ComponentActivity() {
                 val login = runCatching { GitHubClient.api.me().body()?.login }.getOrNull()
                 tokenStore.saveToken(token, login ?: "user")
                 loggedIn.value = true
+                vm.refreshAccess()
             } catch (e: OAuthManager.LoginException) {
                 loginError.value = e.message
             } catch (e: Exception) {

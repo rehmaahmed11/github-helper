@@ -14,6 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.githubdesktop.data.model.Repo
 import com.example.githubdesktop.ui.AppViewModel
+import com.example.githubdesktop.ui.components.AccessBanner
+import com.example.githubdesktop.ui.components.AccessSheet
 import com.example.githubdesktop.ui.components.rememberResultSnackbarHost
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,6 +33,7 @@ fun RepoListScreen(
     val snackbar = rememberResultSnackbarHost(vm)
     var query by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
+    var showAccess by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<Repo?>(null) }
 
     val filtered = repos.filter {
@@ -44,7 +47,10 @@ fun RepoListScreen(
                 title = { Text("Repos · $login") },
                 actions = {
                     IconButton(onClick = { vm.loadUserAndRepos() }) {
-                        Icon(Icons.Filled.Refresh, null)
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    }
+                    IconButton(onClick = { showAccess = true }) {
+                        Icon(Icons.Filled.Info, contentDescription = "Access check")
                     }
                     IconButton(onClick = onLogout) {
                         Icon(Icons.Filled.Logout, null)
@@ -67,6 +73,19 @@ fun RepoListScreen(
                 modifier = Modifier.fillMaxWidth().padding(12.dp)
             )
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            // "Create repo does nothing" is nearly always a token without the repo scope;
+            // say it here, before the user has to discover it in a dialog.
+            AccessBanner(vm, Modifier.padding(horizontal = 12.dp))
+            if (filtered.isEmpty() && !loading) {
+                Text(
+                    if (repos.isEmpty()) "No repositories yet. Tap + to make one, or refresh " +
+                        "with the button above."
+                    else "Nothing matches \"$query\".",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(filtered, key = { it.id }) { r ->
                     ListItem(
@@ -110,6 +129,10 @@ fun RepoListScreen(
                 vm.createRepo(name, desc, priv) { showCreate = false }
             }
         )
+    }
+
+    if (showAccess) {
+        AccessSheet(vm, onDismiss = { showAccess = false })
     }
 
     toDelete?.let { r ->
