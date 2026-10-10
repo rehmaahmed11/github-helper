@@ -231,7 +231,8 @@ object GitPush {
             val message = resp.githubError("GitHub rejected the file")
             return BlobResult(listOf(contentSha), null, names.map { "$it ($message)" })
         }
-        val sha = resp.body()?.sha ?: return BlobResult(listOf(contentSha), null, names.map { "${it.path} (no blob id)" })
+        val sha = resp.body()?.sha
+            ?: return BlobResult(listOf(contentSha), null, names.map { "$it (no blob id)" })
         return BlobResult(listOf(contentSha), sha, emptyList())
     }
 

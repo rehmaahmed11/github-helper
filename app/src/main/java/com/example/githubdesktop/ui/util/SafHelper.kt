@@ -180,11 +180,15 @@ object SafHelper {
         }
 
         val result = push(r, owner, repo, working, base, ops, "Upload ${ops.size} file(s) via mobile", onProgress)
-        if (unreadable.isEmpty() || result is OpResult.Failure) return result
-        return OpResult.Success(
-            "${result.message} Skipped ${unreadable.size}: ${unreadable.joinToString("; ")}",
-            result.workingBranch
-        )
+        if (unreadable.isEmpty()) return result
+        // An explicit branch on the sealed type: a disjunctive `if` above would not smart-cast.
+        return when (result) {
+            is OpResult.Success -> OpResult.Success(
+                "${result.message} Skipped ${unreadable.size}: ${unreadable.joinToString("; ")}",
+                result.workingBranch
+            )
+            is OpResult.Failure -> result
+        }
     }
 
     /** Deletes [path] by removing it in one commit on a working branch. */
