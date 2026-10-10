@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material3.*
+import com.example.githubdesktop.data.AccessReport
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
@@ -37,6 +39,7 @@ fun LoginScreen(
     var pat by remember { mutableStateOf("") }
     var patVisible by remember { mutableStateOf(false) }
     var secretVisible by remember { mutableStateOf(false) }
+    val uri = LocalUriHandler.current
 
     val busy = oauthBusy || patBusy
 
@@ -97,9 +100,10 @@ fun LoginScreen(
             if (!configured) {
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "Browser sign-in needs your OAuth App credentials once. " +
-                        "Enter them below, or use a personal access token instead — " +
-                        "no rebuild needed either way.",
+                    "Browser sign-in needs the Client ID *and* Client Secret of an OAuth App " +
+                    "(Settings → Developer settings → OAuth Apps - not a GitHub App, whose " +
+                    "tokens cannot create repositories). Enter them once below, or use a " +
+                    "personal access token instead - no rebuild needed either way.",
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center
                 )
@@ -178,6 +182,25 @@ fun LoginScreen(
                 "Sign in with a personal access token",
                 style = MaterialTheme.typography.titleSmall
             )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "No OAuth App and no rebuild needed. The token must carry the repo scope, or " +
+                    "GitHub lets you browse and answers 403 to every write.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(8.dp))
+            // Opens GitHub's token form with exactly the boxes this app needs pre-ticked.
+            OutlinedButton(
+                onClick = { runCatching { uri.openUri(AccessReport.CLASSIC_TOKEN_URL) } },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Key, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Open the token form (repo + delete_repo ticked)")
+            }
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = pat,
@@ -197,8 +220,9 @@ fun LoginScreen(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Create one at github.com → Settings → Developer settings → " +
-                    "Personal access tokens, with the repo scope.",
+                "Use "Tokens (classic)", not a fine-grained token: fine-grained tokens need " +
+                    "Contents: Write on every repository and cannot create new ones. Paste the " +
+                    "token below - it is checked against GitHub before it is stored.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center

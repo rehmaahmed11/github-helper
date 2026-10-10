@@ -17,11 +17,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.githubdesktop.GitHubApp
 import com.example.githubdesktop.data.RepoRepository
 import com.example.githubdesktop.data.model.ContentItem
 import com.example.githubdesktop.ui.AppViewModel
+import com.example.githubdesktop.ui.components.AccessBanner
+import com.example.githubdesktop.ui.components.AccessSheet
 import com.example.githubdesktop.ui.components.BranchMergeDialog
 import com.example.githubdesktop.ui.components.FileEditorDialog
 import com.example.githubdesktop.ui.components.rememberResultSnackbarHost
@@ -61,18 +65,29 @@ fun RepoDetailScreen(
     var deleting by remember { mutableStateOf<ContentItem?>(null) }
     var showMergeDialog by remember { mutableStateOf<String?>(null) }
     var showBranchMenu by remember { mutableStateOf(false) }
+    var showAccess by remember { mutableStateOf(false) }
+
+    // A token that can read a repository may still not be allowed to write it: a
+    // fine-grained token without Contents: Write, or a collaborator with read access.
+    // GitHub says so per repository, so say it here instead of failing on the 403.
+    val canPush = repoMeta?.permissions?.push ?: true
 
     LaunchedEffect(currentPath, currentBranch) {
         vm.loadContents(owner, name, currentPath, currentBranch)
     }
     LaunchedEffect(owner, name) { vm.loadBranches(owner, name) }
 
-    /** Report the outcome and only offer the merge step if something landed. */
-    fun report(result: OpResult, working: String?) {
+    /**
+     * Reports the outcome, and only offers the merge step when the push landed on a working
+     * branch (a first commit in an empty repository needs no merge). The listing is reloaded
+     * either way, because a push never invalidates these LaunchedEffects on its own.
+     */
+    fun reportOutcome(result: OpResult) {
         when (result) {
             is OpResult.Success -> {
                 vm.reportNotice(result.message)
-                if (working != null) showMergeDialog = working
+                if (result.workingBranch != null) showMergeDialog = result.workingBranch
+                vm.loadContents(owner, name, currentPath, currentBranch)
             }
             is OpResult.Failure -> vm.reportError(result.message)
         }
@@ -82,14 +97,14 @@ fun RepoDetailScreen(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            val working = SafHelper.newWorkingBranch()
             vm.runTransfer(
-                { report ->
+                { progress ->
                     SafHelper.pushFiles(
-                        ctx, r, owner, name, currentPath, uris, working, baseBranch, report
+                        ctx, r, owner, name, currentPath, uris,
+                        SafHelper.newWorkingBranch(), baseBranch, progress
                     )
                 },
-                { result -> report(result, working) }
+                ::reportOutcome
             )
         }
     }
@@ -104,14 +119,14 @@ fun RepoDetailScreen(
                     it, Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             }
-            val working = SafHelper.newWorkingBranch()
             vm.runTransfer(
-                { report ->
+                { progress ->
                     FolderUploader.uploadTree(
-                        ctx, r, owner, name, currentPath, it, working, baseBranch, report
+                        ctx, r, owner, name, currentPath, it,
+                        SafHelper.newWorkingBranch(), baseBranch, progress
                     )
                 },
-                { result -> report(result, working) }
+                ::reportOutcome
             )
         }
     }
@@ -132,10 +147,10 @@ fun RepoDetailScreen(
                 vm.reportError("Your sign-in expired. Sign in again.")
             } else {
                 vm.runTransfer(
-                    { report ->
-                        Cloner.downloadAndExtract(ctx, token, owner, name, it, report)
+                    { progress ->
+                        Cloner.downloadAndExtract(ctx, token, owner, name, it, progress)
                     },
-                    { result -> report(result, null) }
+                    ::reportOutcome
                 )
             }
         }
@@ -188,6 +203,9 @@ fun RepoDetailScreen(
                             }
                         }
                     }
+                    IconButton(onClick = { showAccess = true }) {
+                        Icon(Icons.Filled.Info, contentDescription = "Access check")
+                    }
                     IconButton(onClick = { cloneFolder.launch(null) }) {
                         Icon(Icons.Filled.Download, contentDescription = "Clone")
                     }
@@ -213,6 +231,16 @@ fun RepoDetailScreen(
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             transfer?.let { TransferBar(it) }
+            AccessBanner(vm)
+            if (!canPush) {
+                Text(
+                    "This token cannot push to `$owner/$name`, so uploads will be refused. " +
+                        "Give it Contents: Write (and the repo scope if it is a classic token).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
 
             LazyColumn(Modifier.fillMaxSize()) {
                 items(contents, key = { it.sha + it.path }) { item ->
@@ -282,13 +310,15 @@ fun RepoDetailScreen(
     editing?.let { file ->
         FileEditorDialog(
             owner = owner, repo = name, file = file,
+            // Branch from the branch the user is looking at: the content they are editing came
+            // from there, and a sha from another branch is what used to break the save.
             branch = currentBranch,
-            baseBranch = baseBranch,
             onDismiss = { editing = null },
             onSaved = { working ->
                 editing = null
-                vm.reportNotice("Saved on `$working`.")
-                showMergeDialog = working
+                vm.reportNotice(if (working == null) "Saved." else "Saved on `$working`.")
+                if (working != null) showMergeDialog = working
+                vm.loadContents(owner, name, currentPath, currentBranch)
             }
         )
     }
@@ -301,14 +331,14 @@ fun RepoDetailScreen(
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        val working = SafHelper.newWorkingBranch()
-                        report(
-                            SafHelper.deleteViaBranch(
-                                r, owner, name, file.path, file.sha, working, currentBranch
-                            ),
-                            working
-                        )
                         deleting = null
+                        val result = withContext(Dispatchers.IO) {
+                            SafHelper.deleteViaBranch(
+                                r, owner, name, file.path,
+                                SafHelper.newWorkingBranch(), currentBranch
+                            )
+                        }
+                        reportOutcome(result)
                     }
                 }) { Text("Delete") }
             },
@@ -318,10 +348,14 @@ fun RepoDetailScreen(
         )
     }
 
+    if (showAccess) {
+        AccessSheet(vm, onDismiss = { showAccess = false })
+    }
+
     showMergeDialog?.let { working ->
         BranchMergeDialog(
             workingBranch = working,
-            mainBranch = baseBranch,
+            mainBranch = currentBranch,
             onDismiss = { showMergeDialog = null },
             onConfirm = { merge, deleteAfter ->
                 scope.launch {
