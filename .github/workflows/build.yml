@@ -75,7 +75,8 @@ jobs:
           fi
 
       # Keep CI usable for forked PRs where Actions secrets are unavailable.
-      # The app still builds without credentials, but its sign-in UI stays disabled.
+      # The app still builds without credentials; users then enter their own
+      # OAuth credentials in the app or sign in with a personal access token.
       - name: Report OAuth configuration
         run: |
           f=$(find app/build/generated -name 'BuildConfig.java' | head -1)
@@ -85,7 +86,7 @@ jobs:
           fi
           grep -E 'String GITHUB_CLIENT_ID|String GITHUB_REDIRECT_URI' "$f"
           if grep -Fq 'GITHUB_CLIENT_ID = ""' "$f" || grep -Fq 'GITHUB_CLIENT_SECRET = ""' "$f"; then
-            echo "::warning title=oauth-config::Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET Actions secrets to enable sign-in in the APK."
+            echo "::warning title=oauth-config::GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET Actions secrets are not set; the APK will ask the user for OAuth credentials or a personal access token at sign-in."
           else
             echo "Both OAuth credentials are configured (Client Secret not printed)."
           fi

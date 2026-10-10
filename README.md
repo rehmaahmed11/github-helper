@@ -15,9 +15,20 @@ working branch you review before it lands.
 - "Clone" — download a repo's contents into a folder you pick
 - After every push, review and optionally merge the working branch and delete it
 
-## Setup
+## Sign in (no rebuild needed)
 
-### 1. Create an OAuth App
+The app always opens with sign-in enabled. Pick either option on the login screen:
+
+1. **Personal access token (fastest).** At
+   <https://github.com/settings/tokens> create a token with the `repo` scope,
+   paste it into the app, and you're in. The token is verified with a `GET /user`
+   call before it is stored, and it is kept encrypted via `EncryptedSharedPreferences`.
+2. **Browser / OAuth.** If this build baked in OAuth credentials, just tap
+   *Continue with GitHub*. Otherwise the app asks for your OAuth App's
+   **Client ID and Client Secret once**, saves them encrypted on the device,
+   and enables browser sign-in from then on.
+
+### 1. Create an OAuth App (only for browser sign-in)
 
 At <https://github.com/settings/developers> → **New OAuth App**:
 
@@ -72,8 +83,9 @@ settings) or exchange codes through a trusted backend. See [GitHub's OAuth App
 authorization docs](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps).
 
 For the **Build APK** GitHub Actions artifact, add repository Actions secrets
-named `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Without these, CI produces
-an APK whose sign-in screen is disabled.
+named `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` to pre-enable browser
+sign-in. Without these, CI still produces a fully usable APK — the user just
+enters their own credentials in the app or uses a personal access token.
 
 ## Build
 

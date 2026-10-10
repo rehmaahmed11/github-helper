@@ -11,6 +11,7 @@ import androidx.lifecycle.lifecycleScope
 import com.example.githubdesktop.auth.OAuthManager
 import com.example.githubdesktop.auth.TokenStore
 import com.example.githubdesktop.data.api.GitHubClient
+import com.example.githubdesktop.data.api.githubError
 import com.example.githubdesktop.ui.AppViewModel
 import com.example.githubdesktop.ui.screens.LoginScreen
 import com.example.githubdesktop.ui.screens.RootNav
@@ -24,10 +25,22 @@ class MainActivity : ComponentActivity() {
     private val loggedIn = mutableStateOf(false)
     private val loginError = mutableStateOf<String?>(null)
     private val exchangingCode = mutableStateOf(false)
+    private val patBusy = mutableStateOf(false)
+    private val oauthConfigured = mutableStateOf(false)
+    private val savedClientId = mutableStateOf("")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tokenStore = (application as GitHubApp).tokenStore
+
+        // Restore user-supplied OAuth credentials (if any) so browser sign-in
+        // stays enabled across restarts without rebuilding the app.
+        OAuthManager.setRuntimeCredentials(
+            tokenStore.getOAuthClientId().orEmpty(),
+            tokenStore.getOAuthClientSecret().orEmpty()
+        )
+        oauthConfigured.value = OAuthManager.isConfigured
+        savedClientId.value = tokenStore.getOAuthClientId().orEmpty()
 
         tokenStore.getToken()?.let {
             GitHubClient.setToken(it)
@@ -49,10 +62,14 @@ class MainActivity : ComponentActivity() {
                 )
             } else {
                 LoginScreen(
-                    configured = OAuthManager.isConfigured,
-                    busy = exchangingCode.value,
+                    configured = oauthConfigured.value,
+                    oauthBusy = exchangingCode.value,
+                    patBusy = patBusy.value,
                     errorMessage = loginError.value,
-                    onLogin = ::startLogin
+                    savedClientId = savedClientId.value,
+                    onLogin = ::startLogin,
+                    onPatLogin = ::startPatLogin,
+                    onSaveOAuth = ::saveOAuthCredentials
                 )
             }
         }
@@ -70,6 +87,59 @@ class MainActivity : ComponentActivity() {
             OAuthManager.launchLogin(this)
         } catch (e: OAuthManager.LoginException) {
             loginError.value = e.message
+        }
+    }
+
+    private fun saveOAuthCredentials(clientId: String, clientSecret: String) {
+        if (clientId.isBlank() || clientSecret.isBlank()) {
+            loginError.value = "Enter both the Client ID and the Client Secret."
+            return
+        }
+        tokenStore.saveOAuthCredentials(clientId, clientSecret)
+        OAuthManager.setRuntimeCredentials(clientId, clientSecret)
+        oauthConfigured.value = OAuthManager.isConfigured
+        savedClientId.value = clientId
+        loginError.value = null
+    }
+
+    /**
+     * Token sign-in: works with zero setup. The token is verified with a
+     * GET /user call before it is stored; failures never leave a bad token
+     * behind.
+     */
+    private fun startPatLogin(rawToken: String) {
+        val token = rawToken.trim()
+        if (token.isBlank()) {
+            loginError.value = "Paste your personal access token first."
+            return
+        }
+        loginError.value = null
+        patBusy.value = true
+        lifecycleScope.launch {
+            try {
+                GitHubClient.setToken(token)
+                val res = try {
+                    GitHubClient.api.me()
+                } catch (e: Exception) {
+                    GitHubClient.setToken(null)
+                    loginError.value = "Could not reach GitHub: ${e.message ?: "network error"}"
+                    return@launch
+                }
+                if (res.isSuccessful) {
+                    val login = res.body()?.login ?: "user"
+                    tokenStore.saveToken(token, login)
+                    loggedIn.value = true
+                } else {
+                    GitHubClient.setToken(null)
+                    loginError.value = if (res.code() == 401) {
+                        "That token was rejected. Check it has the repo scope and has not expired."
+                    } else {
+                        "Token sign-in failed: ${res.githubError()}"
+                    }
+                }
+            } finally {
+                patBusy.value = false
+            }
         }
     }
 
