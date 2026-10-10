@@ -60,13 +60,12 @@ jobs:
             tail -n 15 "$log"
           else
             echo "::error title=assembleDebug::assembleDebug FAILED"
-            start=$(grep -n -m1 -E "What went wrong|^FAILURE:" "$log" | cut -d: -f1)
-            if [ -n "$start" ]; then
-              sed -n "${start},$((start + 40))p" "$log"
-            else
-              echo "no failure banner found; last 40 lines:"
-              tail -n 40 "$log"
-            fi | grep -v '^[[:space:]]*$' | head -40 | while IFS= read -r line; do
+            {
+              first=$(grep -n -m1 -E "^e: |^w: " "$log" | cut -d: -f1)
+              [ -n "$first" ] && sed -n "${first},$((first + 45))p" "$log"
+              banner=$(grep -n -m1 -E "What went wrong|^FAILURE:" "$log" | cut -d: -f1)
+              [ -n "$banner" ] && sed -n "${banner},$((banner + 12))p" "$log"
+            } | grep -v '^[[:space:]]*$' | head -50 | while IFS= read -r line; do
               echo "::error title=assembleDebug::${line}"
             done
             exit 1
@@ -86,13 +85,12 @@ jobs:
             tail -n 15 "$log"
           else
             echo "::error title=lintDebug::lintDebug FAILED"
-            start=$(grep -n -m1 -E "What went wrong|^FAILURE:|Lint found" "$log" | cut -d: -f1)
-            if [ -n "$start" ]; then
-              sed -n "${start},$((start + 40))p" "$log"
-            else
-              echo "no failure banner found; last 40 lines:"
-              tail -n 40 "$log"
-            fi | grep -v '^[[:space:]]*$' | head -40 | while IFS= read -r line; do
+            {
+              first=$(grep -n -m1 -E "^e: |^w: " "$log" | cut -d: -f1)
+              [ -n "$first" ] && sed -n "${first},$((first + 45))p" "$log"
+              banner=$(grep -n -m1 -E "What went wrong|^FAILURE:|Lint found" "$log" | cut -d: -f1)
+              [ -n "$banner" ] && sed -n "${banner},$((banner + 12))p" "$log"
+            } | grep -v '^[[:space:]]*$' | head -50 | while IFS= read -r line; do
               echo "::error title=lintDebug::${line}"
             done
             exit 1
