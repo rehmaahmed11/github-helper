@@ -44,8 +44,9 @@ fun LoginScreen(
             if (!configured) {
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    "This build has no GitHub OAuth Client ID configured, so sign-in " +
-                            "is disabled. See the README for how to set one.",
+                    "This build is missing the GitHub OAuth Client ID and/or Client Secret, " +
+                            "so sign-in is disabled. Configure both values and rebuild the app; " +
+                            "see the README for instructions.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center
