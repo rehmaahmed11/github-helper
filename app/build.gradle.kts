@@ -1,50 +1,6 @@
-// Must be imported: inside a Gradle Kotlin DSL script, `java` resolves to the
-// JavaPluginExtension (Project.java), so `java.util.Properties` does not resolve.
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-}
-
-/**
- * OAuth Client ID for the GitHub OAuth App (PKCE flow).
- *
- * It is a public identifier, not a secret - but it identifies ONE specific OAuth
- * App on GitHub, so it is kept out of version control. Resolved from, in order:
- *
- *   1. a Gradle property: `-PGITHUB_CLIENT_ID=...` (also accepts `github.clientId`)
- *   2. environment variable `GITHUB_CLIENT_ID`
- *   3. `github.clientId` in local.properties (git-ignored)
- *
- * See README.md. CI has none of these, so we fall back to a placeholder rather
- * than failing the build; the app then shows a "not configured" message at login.
- */
-val oauthClientId: String = run {
-    fun gradleProp(vararg names: String): String? =
-        names.firstNotNullOfOrNull { findProperty(it) as? String }
-
-    val fromLocalProperties = rootProject.file("local.properties")
-        .takeIf { it.isFile }
-        ?.let { f ->
-            Properties().apply { f.inputStream().use { load(it) } }
-                .getProperty("github.clientId")
-        }
-
-    val id = gradleProp("github.clientId", "github.client.id", "GITHUB_CLIENT_ID")
-        ?: System.getenv("GITHUB_CLIENT_ID")
-        ?: fromLocalProperties
-        ?: ""
-
-    if (id.isBlank()) {
-        // println rather than logger.warn: always available, and CI shows it in the log.
-        println(
-            "WARNING: GITHUB_CLIENT_ID is not set - sign-in will be disabled in this build. " +
-                "Set github.clientId in local.properties, export GITHUB_CLIENT_ID, or pass " +
-                "-PGITHUB_CLIENT_ID=<id>. See README.md."
-        )
-    }
-    id.ifBlank { "YOUR_CLIENT_ID" }
 }
 
 android {
@@ -61,7 +17,9 @@ android {
         // Used by Custom Tabs to route back into the app.
         manifestPlaceholders["appAuthRedirectScheme"] = "githubdesktop"
 
-        buildConfigField("String", "GITHUB_CLIENT_ID", "\"$oauthClientId\"")
+        // PKCE flow: the Client ID is a public identifier, NOT a secret.
+        // Paste your own OAuth App's Client ID here.
+        buildConfigField("String", "GITHUB_CLIENT_ID", "\"Ov23liYdoLYwgghXQVXQ\"")
         buildConfigField("String", "GITHUB_REDIRECT_URI", "\"githubdesktop://callback\"")
     }
 
