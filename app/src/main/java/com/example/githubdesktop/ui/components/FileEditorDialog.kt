@@ -102,8 +102,9 @@ fun FileEditorDialog(
                         error = null
 
                         val working = SafHelper.newWorkingBranch()
-                        if (SafHelper.createWorkingBranch(r, owner, repo, working, baseBranch) == null) {
-                            error = "Could not create branch `$working` from `$baseBranch`."
+                        val started = SafHelper.createWorkingBranch(r, owner, repo, working, baseBranch)
+                        if (started is OpResult.Failure) {
+                            error = started.message
                             saving = false
                             return@launch
                         }

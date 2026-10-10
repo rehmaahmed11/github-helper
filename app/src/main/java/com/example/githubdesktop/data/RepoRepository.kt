@@ -58,7 +58,16 @@ class RepoRepository {
     suspend fun listCommits(owner: String, repo: String, branch: String) =
         GitHubClient.api.listCommits(owner, repo, branch)
 
-    suspend fun headSha(owner: String, repo: String, branch: String): String? =
-        GitHubClient.api.listBranches(owner, repo).body()
-            ?.find { it.name == branch }?.commit?.sha
+    /** Exact ref lookup (not the paginated branch list). Returns the raw response for error reporting. */
+    suspend fun branchRef(owner: String, repo: String, branch: String) =
+        GitHubClient.api.getBranchRef(owner, repo, branch)
+
+    /**
+     * The blob sha of [path] on [branch], or null if the file does not exist there.
+     * GitHub requires this sha to overwrite an existing file.
+     */
+    suspend fun existingFileSha(owner: String, repo: String, path: String, branch: String): String? =
+        runCatching {
+            GitHubClient.api.getFile(owner, repo, path, branch).takeIf { it.isSuccessful }?.body()?.sha
+        }.getOrNull()
 }

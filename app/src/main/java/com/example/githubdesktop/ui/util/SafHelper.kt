@@ -50,14 +50,44 @@ object SafHelper {
         return uri.lastPathSegment ?: "file"
     }
 
-    /** Branches off [base] at its current head. Returns null on failure. */
+    /**
+     * Creates [working] off the current head of [base].
+     *
+     * Returns [OpResult.Success] when the branch exists, otherwise a Failure that
+     * carries GitHub's own reason (for example "Reference already exists").
+     */
     suspend fun createWorkingBranch(
         r: RepoRepository, owner: String, repo: String, working: String, base: String
-    ): String? {
-        val headSha = r.headSha(owner, repo, base)
-            ?: return null
-        val created = r.createBranch(owner, repo, working, headSha)
-        return if (created.isSuccessful) headSha else null
+    ): OpResult {
+        val head = r.branchRef(owner, repo, base)
+        if (!head.isSuccessful) {
+            return OpResult.Failure(
+                "Could not read branch `$base` to branch from: ${head.githubError()}"
+            )
+        }
+        val sha = head.body()?.obj?.sha
+            ?: return OpResult.Failure("GitHub did not return a commit for `$base`.")
+
+        val created = r.createBranch(owner, repo, working, sha)
+        return if (created.isSuccessful) {
+            OpResult.Success("Created `$working`.")
+        } else {
+            OpResult.Failure(
+                "Could not create branch `$working` from `$base`: ${created.githubError()}"
+            )
+        }
+    }
+
+    /**
+     * Writes [bytes] to [path] on [branch]. Looks up the existing blob sha first,
+     * because GitHub rejects an overwrite that does not carry it ("sha wasn't supplied").
+     */
+    suspend fun putFileOnBranch(
+        r: RepoRepository, owner: String, repo: String, path: String,
+        bytes: ByteArray, branch: String, message: String
+    ): OpResult {
+        val sha = r.existingFileSha(owner, repo, path, branch)
+        return putFile(r, owner, repo, path, bytes, sha, branch, message)
     }
 
     suspend fun putFile(
@@ -73,32 +103,42 @@ object SafHelper {
         }
     }
 
-    /** Creates [working] off [base] and pushes the picked [uris] into [basePath]. */
+    /**
+     * Creates [working] off [base] and pushes the picked [uris] into [basePath].
+     * [onProgress] reports one step per file.
+     */
     suspend fun pushFiles(
         ctx: Context, r: RepoRepository,
         owner: String, repo: String,
-        basePath: String, uris: List<Uri>, working: String, base: String
+        basePath: String, uris: List<Uri>, working: String, base: String,
+        onProgress: (TransferProgress) -> Unit = {}
     ): OpResult {
-        if (createWorkingBranch(r, owner, repo, working, base) == null) {
-            return OpResult.Failure(
-                "Could not create branch `$working` from `$base`."
-            )
-        }
+        if (uris.isEmpty()) return OpResult.Failure("No files were selected.")
+
+        val started = createWorkingBranch(r, owner, repo, working, base)
+        if (started is OpResult.Failure) return started
 
         var uploaded = 0
         val failures = mutableListOf<String>()
 
-        for (uri in uris) {
+        uris.forEachIndexed { index, uri ->
             val name = fileName(ctx, uri)
+            onProgress(
+                TransferProgress(
+                    "Uploading $name (${index + 1} of ${uris.size})",
+                    index.toFloat() / uris.size
+                )
+            )
             val path = if (basePath.isBlank()) name else "$basePath/$name"
             val bytes = runCatching { readBytes(ctx, uri) }.getOrNull()
             if (bytes == null) {
                 failures += "$name (could not read)"
-                continue
+                return@forEachIndexed
             }
-            val resp = r.putFile(owner, repo, path, bytes, null, working, "Add $name via mobile")
-            if (resp.isSuccessful) uploaded++ else failures += "$name (${resp.githubError()})"
+            val resp = putFileOnBranch(r, owner, repo, path, bytes, working, "Add $name via mobile")
+            if (resp is OpResult.Success) uploaded++ else failures += "$name (${(resp as OpResult.Failure).message})"
         }
+        onProgress(TransferProgress("Finishing…", 1f))
 
         return finishPush(r, owner, repo, working, uploaded, failures)
     }
@@ -108,9 +148,8 @@ object SafHelper {
         owner: String, repo: String,
         path: String, sha: String, working: String, base: String
     ): OpResult {
-        if (createWorkingBranch(r, owner, repo, working, base) == null) {
-            return OpResult.Failure("Could not create branch `$working` from `$base`.")
-        }
+        val started = createWorkingBranch(r, owner, repo, working, base)
+        if (started is OpResult.Failure) return started
         val resp = r.deleteFile(owner, repo, path, sha, working, "Delete $path via mobile")
         if (!resp.isSuccessful) {
             // Don't leave an empty branch behind for a delete that never happened.
@@ -152,7 +191,7 @@ object SafHelper {
      * Turns per-file counts into one report, and drops the working branch
      * entirely if nothing actually made it up.
      */
-    private suspend fun finishPush(
+    suspend fun finishPush(
         r: RepoRepository,
         owner: String, repo: String, working: String,
         uploaded: Int, failures: List<String>

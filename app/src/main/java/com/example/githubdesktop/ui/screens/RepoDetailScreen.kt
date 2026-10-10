@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.example.githubdesktop.GitHubApp
 import com.example.githubdesktop.data.RepoRepository
@@ -28,6 +29,7 @@ import com.example.githubdesktop.ui.util.Cloner
 import com.example.githubdesktop.ui.util.FolderUploader
 import com.example.githubdesktop.ui.util.OpResult
 import com.example.githubdesktop.ui.util.SafHelper
+import com.example.githubdesktop.ui.util.TransferProgress
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -44,6 +46,7 @@ fun RepoDetailScreen(
     val loading by vm.loading.collectAsState()
     val repos by vm.repos.collectAsState()
     val branches by vm.branches.collectAsState()
+    val transfer by vm.progress.collectAsState()
     val snackbar = rememberResultSnackbarHost(vm)
 
     // The default branch is not always "main" - read it from the repo instead of
@@ -79,13 +82,15 @@ fun RepoDetailScreen(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            scope.launch {
-                val working = SafHelper.newWorkingBranch()
-                report(
-                    SafHelper.pushFiles(ctx, r, owner, name, currentPath, uris, working, baseBranch),
-                    working
-                )
-            }
+            val working = SafHelper.newWorkingBranch()
+            vm.runTransfer(
+                { report ->
+                    SafHelper.pushFiles(
+                        ctx, r, owner, name, currentPath, uris, working, baseBranch, report
+                    )
+                },
+                { result -> report(result, working) }
+            )
         }
     }
 
@@ -99,15 +104,15 @@ fun RepoDetailScreen(
                     it, Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             }
-            scope.launch {
-                val working = SafHelper.newWorkingBranch()
-                report(
+            val working = SafHelper.newWorkingBranch()
+            vm.runTransfer(
+                { report ->
                     FolderUploader.uploadTree(
-                        ctx, r, owner, name, currentPath, it, working, baseBranch
-                    ),
-                    working
-                )
-            }
+                        ctx, r, owner, name, currentPath, it, working, baseBranch, report
+                    )
+                },
+                { result -> report(result, working) }
+            )
         }
     }
 
@@ -115,18 +120,23 @@ fun RepoDetailScreen(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         uri?.let {
+            // Cloning writes into the folder, so ask for write access as well as read.
             runCatching {
                 ctx.contentResolver.takePersistableUriPermission(
-                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             }
-            scope.launch {
-                val token = (ctx.applicationContext as GitHubApp).tokenStore.getToken()
-                if (token == null) {
-                    vm.reportError("Your sign-in expired. Sign in again.")
-                } else {
-                    report(Cloner.downloadAndExtract(ctx, token, owner, name, it), null)
-                }
+            val token = (ctx.applicationContext as GitHubApp).tokenStore.getToken()
+            if (token == null) {
+                vm.reportError("Your sign-in expired. Sign in again.")
+            } else {
+                vm.runTransfer(
+                    { report ->
+                        Cloner.downloadAndExtract(ctx, token, owner, name, it, report)
+                    },
+                    { result -> report(result, null) }
+                )
             }
         }
     }
@@ -202,6 +212,7 @@ fun RepoDetailScreen(
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            transfer?.let { TransferBar(it) }
 
             LazyColumn(Modifier.fillMaxSize()) {
                 items(contents, key = { it.sha + it.path }) { item ->
@@ -331,5 +342,23 @@ fun RepoDetailScreen(
                 }
             }
         )
+    }
+}
+
+/** Progress bar for an upload or download: determinate when the size is known. */
+@Composable
+private fun TransferBar(p: TransferProgress) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(p.label, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+        val fraction = p.fraction
+        if (fraction != null) {
+            LinearProgressIndicator(
+                progress = { fraction.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
     }
 }
