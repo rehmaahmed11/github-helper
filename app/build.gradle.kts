@@ -1,7 +1,28 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Do not keep app credentials in the tracked build script. Values can be passed
+// with -P, environment variables, or the ignored local.properties file.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.isFile) file.inputStream().use { load(it) }
+}
+
+fun configuredCredential(gradleProperty: String, localProperty: String): String =
+    providers.gradleProperty(gradleProperty).orNull?.trim()?.takeIf { it.isNotEmpty() }
+        ?: providers.environmentVariable(gradleProperty).orNull?.trim()?.takeIf { it.isNotEmpty() }
+        ?: localProperties.getProperty(localProperty)?.trim()?.takeIf { it.isNotEmpty() }
+        ?: ""
+
+fun asBuildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")}\""
+
+val githubClientId = configuredCredential("GITHUB_CLIENT_ID", "github.clientId")
+val githubClientSecret = configuredCredential("GITHUB_CLIENT_SECRET", "github.clientSecret")
 
 android {
     namespace = "com.example.githubdesktop"
@@ -17,9 +38,11 @@ android {
         // Used by Custom Tabs to route back into the app.
         manifestPlaceholders["appAuthRedirectScheme"] = "githubdesktop"
 
-        // PKCE flow: the Client ID is a public identifier, NOT a secret.
-        // Paste your own OAuth App's Client ID here.
-        buildConfigField("String", "GITHUB_CLIENT_ID", "\"Ov23liYdoLYwgghXQVXQ\"")
+        // GitHub requires both OAuth App credentials when exchanging the code,
+        // even when PKCE is used. Defaults are empty so an unconfigured build
+        // remains usable for development, but sign-in is disabled at runtime.
+        buildConfigField("String", "GITHUB_CLIENT_ID", asBuildConfigString(githubClientId))
+        buildConfigField("String", "GITHUB_CLIENT_SECRET", asBuildConfigString(githubClientSecret))
         buildConfigField("String", "GITHUB_REDIRECT_URI", "\"githubdesktop://callback\"")
     }
 

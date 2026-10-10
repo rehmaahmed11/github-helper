@@ -26,30 +26,54 @@ At <https://github.com/settings/developers> → **New OAuth App**:
 | Homepage URL | anything, e.g. `https://github.com` |
 | Authorization callback URL | `githubdesktop://callback` |
 
-There is **no client secret** — PKCE does not need one, and nothing secret is
-shipped in the app.
+### 2. Configure both OAuth credentials
 
-### 2. Add your Client ID
+GitHub requires the OAuth App's **Client ID and Client Secret** at the code-to-token
+exchange, even when PKCE is enabled. The browser approval can therefore succeed
+and return to the app, but the token exchange will fail if the secret is missing
+or belongs to a different OAuth App.
 
-The Client ID is a public identifier, but it identifies one specific OAuth App, so
-it is kept out of version control. Create `local.properties` in the repo root
+For a local build, put both values in `local.properties` at the repository root
 (this file is git-ignored):
 
 ```properties
 sdk.dir=/path/to/Android/sdk
-github.clientId=Ov23liYdoLYwgghXQVXQ
+github.clientId=YOUR_OAUTH_APP_CLIENT_ID
+github.clientSecret=YOUR_OAUTH_APP_CLIENT_SECRET
 ```
 
-Or pass it at build time / through the environment:
+Or provide both at build time:
 
 ```bash
-./gradlew assembleDebug -PGITHUB_CLIENT_ID=Ov23liYdoLYwgghXQVXQ
-export GITHUB_CLIENT_ID=Ov23liYdoLYwgghXQVXQ
+./gradlew assembleDebug \
+  -PGITHUB_CLIENT_ID=YOUR_OAUTH_APP_CLIENT_ID \
+  -PGITHUB_CLIENT_SECRET=YOUR_OAUTH_APP_CLIENT_SECRET
 ```
 
-Resolution order is `-P` property → `GITHUB_CLIENT_ID` env var →
-`local.properties`. With none of them set the app still builds, and the sign-in
-screen explains that it has no Client ID rather than failing mysteriously.
+Or through environment variables:
+
+```bash
+export GITHUB_CLIENT_ID=YOUR_OAUTH_APP_CLIENT_ID
+export GITHUB_CLIENT_SECRET=YOUR_OAUTH_APP_CLIENT_SECRET
+./gradlew assembleDebug
+```
+
+Each value is resolved independently in this order: `-P` Gradle property →
+matching environment variable → `local.properties` (`github.clientId` and
+`github.clientSecret`). If either value is missing, the app still builds but
+sign-in is disabled with a setup message.
+
+**Native-app security note:** a client secret compiled into an APK is not truly
+secret and can be extracted. GitHub requires it for this OAuth App flow; PKCE
+protects authorization codes but does not hide the secret. Do not commit the
+secret or paste it into source code. For a flow that does not ship an OAuth App
+secret, use GitHub's Device Flow (which requires enabling it in the OAuth App
+settings) or exchange codes through a trusted backend. See [GitHub's OAuth App
+authorization docs](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps).
+
+For the **Build APK** GitHub Actions artifact, add repository Actions secrets
+named `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Without these, CI produces
+an APK whose sign-in screen is disabled.
 
 ## Build
 
@@ -68,7 +92,7 @@ Alternatively, push to GitHub → **Actions** → *Build APK* → download the
 ```text
 github-helper/
 ├── app/
-│   ├── build.gradle.kts            # GITHUB_CLIENT_ID resolution
+│   ├── build.gradle.kts            # OAuth credential resolution
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── java/com/example/githubdesktop/

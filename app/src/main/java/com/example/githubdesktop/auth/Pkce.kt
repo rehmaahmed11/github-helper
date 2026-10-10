@@ -14,7 +14,9 @@ import java.security.SecureRandom
  *   4. GitHub redirects back with ?code=...
  *   5. Exchange code + original code_verifier at /access_token.
  *
- * The verifier never leaves the device, so no client secret is required.
+ * The verifier never leaves the device. GitHub still requires an OAuth App
+ * client secret at token exchange; PKCE is an additional protection, not a
+ * replacement for that credential.
  */
 object Pkce {
 

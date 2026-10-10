@@ -15,7 +15,9 @@ import java.util.concurrent.TimeUnit
 /**
  * GitHub OAuth 2.0 Authorization Code + PKCE (S256).
  *
- * - No client secret in the app.
+ * - GitHub requires the OAuth App client secret when exchanging the code, even
+ *   when PKCE is used. A native APK is a public client, so that value can be
+ *   extracted; PKCE helps protect intercepted authorization codes.
  * - Each user authorizes with their own GitHub account.
  * - code_verifier is held in memory only; never written to disk.
  * - `state` is generated per attempt and verified on redirect (CSRF protection).
@@ -28,8 +30,6 @@ object OAuthManager {
     private const val TOKEN_URL = "https://github.com/login/oauth/access_token"
     private const val SCOPES = "repo user delete_repo"
 
-    private const val PLACEHOLDER_CLIENT_ID = "YOUR_CLIENT_ID"
-
     /** Held between /authorize and /access_token. Memory only. */
     @Volatile
     var pendingVerifier: String? = null
@@ -41,12 +41,12 @@ object OAuthManager {
         private set
 
     /**
-     * False when the build has no real Client ID (e.g. an unconfigured CI build).
-     * The UI uses this to explain sign-in instead of failing silently.
+     * GitHub requires both values for the authorization-code token exchange.
+     * The UI explains the missing build configuration instead of failing later.
      */
     val isConfigured: Boolean
         get() = BuildConfig.GITHUB_CLIENT_ID.isNotBlank() &&
-            BuildConfig.GITHUB_CLIENT_ID != PLACEHOLDER_CLIENT_ID
+            BuildConfig.GITHUB_CLIENT_SECRET.isNotBlank()
 
     // A single shared client: constructing one per call leaks pools/sockets.
     // Deliberately separate from GitHubClient's, which injects the user token.
@@ -63,8 +63,8 @@ object OAuthManager {
     fun launchLogin(context: Context) {
         if (!isConfigured) {
             throw LoginException(
-                "GITHUB_CLIENT_ID is not configured for this build. " +
-                    "See the README to create an OAuth App and set github.clientId."
+                "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are not configured for this build. " +
+                    "See the README to set both values for your OAuth App."
             )
         }
 
@@ -117,6 +117,7 @@ object OAuthManager {
 
             val body = FormBody.Builder()
                 .add("client_id", BuildConfig.GITHUB_CLIENT_ID)
+                .add("client_secret", BuildConfig.GITHUB_CLIENT_SECRET)
                 .add("code", code)
                 .add("redirect_uri", REDIRECT_URI)
                 .add("code_verifier", verifier)
@@ -141,10 +142,20 @@ object OAuthManager {
             }
 
             json.optString("access_token").takeIf { it.isNotBlank() }
-                ?: throw LoginException(
-                    json.optString("error_description")
-                        .ifBlank { json.optString("error").ifBlank { "GitHub rejected the sign-in." } }
-                )
+                ?: run {
+                    val error = json.optString("error")
+                    val message = when (error) {
+                        "incorrect_client_credentials" ->
+                            "GitHub rejected the OAuth credentials. Check that the Client ID " +
+                                "and Client Secret belong to the same OAuth App."
+                        "bad_verification_code" ->
+                            "GitHub rejected the authorization code. It may have expired or " +
+                                "already been used; check that the callback URL matches exactly."
+                        else -> json.optString("error_description")
+                            .ifBlank { error.ifBlank { "GitHub rejected the sign-in." } }
+                    }
+                    throw LoginException(message)
+                }
         }
 
     fun cancel() {

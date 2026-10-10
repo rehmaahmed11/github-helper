@@ -54,6 +54,9 @@ jobs:
       # artifacts may be unreachable), so on failure the "What went wrong" block
       # is re-published as workflow commands, which surface as check annotations.
       - name: Build debug APK
+        env:
+          GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
         run: |
           log="$RUNNER_TEMP/assembleDebug.log"
           if ./gradlew assembleDebug --stacktrace > "$log" 2>&1; then
@@ -71,24 +74,21 @@ jobs:
             exit 1
           fi
 
-      # Guard against silently shipping an unconfigured APK: if the Client ID
-      # resolves to the placeholder, the build still succeeds but sign-in is
-      # disabled at runtime, which looks like a bug in the app rather than a
-      # build-time misconfiguration. Check the generated BuildConfig and fail.
-      - name: Verify the APK has a real Client ID
+      # Keep CI usable for forked PRs where Actions secrets are unavailable.
+      # The app still builds without credentials, but its sign-in UI stays disabled.
+      - name: Report OAuth configuration
         run: |
           f=$(find app/build/generated -name 'BuildConfig.java' | head -1)
           if [ -z "$f" ]; then
-            echo "::error title=unconfigured::No generated BuildConfig.java found."
+            echo "::error title=build-config::No generated BuildConfig.java found."
             exit 1
           fi
-          echo "BuildConfig: $f"
           grep -E 'String GITHUB_CLIENT_ID|String GITHUB_REDIRECT_URI' "$f"
-          if grep -q 'String GITHUB_CLIENT_ID = "YOUR_CLIENT_ID"' "$f"; then
-            echo "::error title=unconfigured::Built with the placeholder Client ID - sign-in will be disabled."
-            exit 1
+          if grep -Fq 'GITHUB_CLIENT_ID = ""' "$f" || grep -Fq 'GITHUB_CLIENT_SECRET = ""' "$f"; then
+            echo "::warning title=oauth-config::Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET Actions secrets to enable sign-in in the APK."
+          else
+            echo "Both OAuth credentials are configured (Client Secret not printed)."
           fi
-          echo "Client ID is baked in."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
