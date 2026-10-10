@@ -51,17 +51,22 @@ jobs:
           chmod +x ./gradlew
 
       # Gradle's console output is not visible in every environment (job logs and
-      # artifacts may be unreachable), so on failure the interesting lines are
-      # re-published as workflow commands, which surface as check annotations.
+      # artifacts may be unreachable), so on failure the "What went wrong" block
+      # is re-published as workflow commands, which surface as check annotations.
       - name: Build debug APK
         run: |
           log="$RUNNER_TEMP/assembleDebug.log"
           if ./gradlew assembleDebug --stacktrace > "$log" 2>&1; then
             tail -n 15 "$log"
           else
-            echo "::error title=assembleDebug::assembleDebug FAILED - see annotations below"
-            grep -E "^e: |What went wrong|^Execution failed|^FAILURE:|^Caused by:|FAILED|error:|Could not|^> " "$log" \
-              | tail -45 | while IFS= read -r line; do
+            echo "::error title=assembleDebug::assembleDebug FAILED"
+            start=$(grep -n -m1 -E "What went wrong|^FAILURE:" "$log" | cut -d: -f1)
+            if [ -n "$start" ]; then
+              sed -n "${start},$((start + 40))p" "$log"
+            else
+              echo "no failure banner found; last 40 lines:"
+              tail -n 40 "$log"
+            fi | grep -v '^[[:space:]]*$' | head -40 | while IFS= read -r line; do
               echo "::error title=assembleDebug::${line}"
             done
             exit 1
@@ -80,9 +85,14 @@ jobs:
           if ./gradlew lintDebug --stacktrace > "$log" 2>&1; then
             tail -n 15 "$log"
           else
-            echo "::error title=lintDebug::lintDebug FAILED - see annotations below"
-            grep -E "^e: |What went wrong|^Execution failed|^FAILURE:|^Caused by:|FAILED|error:|Lint found|^Error:|^[0-9]+ errors" "$log" \
-              | tail -45 | while IFS= read -r line; do
+            echo "::error title=lintDebug::lintDebug FAILED"
+            start=$(grep -n -m1 -E "What went wrong|^FAILURE:|Lint found" "$log" | cut -d: -f1)
+            if [ -n "$start" ]; then
+              sed -n "${start},$((start + 40))p" "$log"
+            else
+              echo "no failure banner found; last 40 lines:"
+              tail -n 40 "$log"
+            fi | grep -v '^[[:space:]]*$' | head -40 | while IFS= read -r line; do
               echo "::error title=lintDebug::${line}"
             done
             exit 1
