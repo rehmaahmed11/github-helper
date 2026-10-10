@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.githubdesktop.data.model.Repo
 import com.example.githubdesktop.ui.AppViewModel
+import com.example.githubdesktop.ui.components.rememberResultSnackbarHost
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -19,6 +19,8 @@ object SafHelper {
 
     private const val BRANCH_PREFIX = "mobile-edit"
 
+    private val random = SecureRandom()
+
     /**
      * A unique working-branch name.
      *
@@ -28,7 +30,9 @@ object SafHelper {
      */
     fun newWorkingBranch(prefix: String = BRANCH_PREFIX): String {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        val suffix = SecureRandom().nextInt(0x1000, 0x10000).toString(16)
+        // SecureRandom has no nextInt(from, until); the two-argument overload exists
+        // only on kotlin.random.Random. Bound + zero-pad to a fixed 4 hex digits.
+        val suffix = "%04x".format(random.nextInt(0x10000))
         return "$prefix-$stamp-$suffix"
     }
 
