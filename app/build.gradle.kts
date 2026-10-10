@@ -27,7 +27,7 @@ val oauthClientId: String = run {
     val fromLocalProperties = rootProject.file("local.properties")
         .takeIf { it.isFile }
         ?.let { f ->
-            java.util.Properties().apply { f.inputStream().use { load(it) } }
+            Properties().apply { f.inputStream().use { load(it) } }
                 .getProperty("github.clientId")
         }
 
