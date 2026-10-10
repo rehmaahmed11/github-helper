@@ -21,6 +21,8 @@ import java.util.concurrent.TimeUnit
  * - Each user authorizes with their own GitHub account.
  * - code_verifier is held in memory only; never written to disk.
  * - `state` is generated per attempt and verified on redirect (CSRF protection).
+ * - Credentials resolve as: BuildConfig (baked in at build time) first, then
+ *   user-supplied values entered in the app and kept in [TokenStore].
  */
 object OAuthManager {
 
@@ -41,12 +43,43 @@ object OAuthManager {
         private set
 
     /**
-     * GitHub requires both values for the authorization-code token exchange.
-     * The UI explains the missing build configuration instead of failing later.
+     * User-supplied OAuth App credentials, loaded from [TokenStore] at startup
+     * and updated when the user saves new values in the login screen.
+     * Only used when the build did not bake credentials in.
      */
-    val isConfigured: Boolean
+    @Volatile
+    var runtimeClientId: String = ""
+        private set
+
+    @Volatile
+    var runtimeClientSecret: String = ""
+        private set
+
+    fun setRuntimeCredentials(clientId: String, clientSecret: String) {
+        runtimeClientId = clientId.trim()
+        runtimeClientSecret = clientSecret.trim()
+    }
+
+    /** Build-time credentials win; runtime (user-entered) values are fallback. */
+    val activeClientId: String
+        get() = BuildConfig.GITHUB_CLIENT_ID.ifBlank { runtimeClientId }
+
+    val activeClientSecret: String
+        get() = BuildConfig.GITHUB_CLIENT_SECRET.ifBlank { runtimeClientSecret }
+
+    /** True when the build baked credentials in (user cannot / need not change them). */
+    val hasBuildTimeCredentials: Boolean
         get() = BuildConfig.GITHUB_CLIENT_ID.isNotBlank() &&
             BuildConfig.GITHUB_CLIENT_SECRET.isNotBlank()
+
+    /**
+     * GitHub requires both values for the authorization-code token exchange.
+     * When false, the login screen lets the user paste their own OAuth App
+     * credentials or sign in with a personal access token instead — sign-in
+     * itself is never disabled.
+     */
+    val isConfigured: Boolean
+        get() = activeClientId.isNotBlank() && activeClientSecret.isNotBlank()
 
     // A single shared client: constructing one per call leaks pools/sockets.
     // Deliberately separate from GitHubClient's, which injects the user token.
@@ -61,10 +94,11 @@ object OAuthManager {
     class LoginException(message: String) : Exception(message)
 
     fun launchLogin(context: Context) {
+        val clientId = activeClientId
         if (!isConfigured) {
             throw LoginException(
-                "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are not configured for this build. " +
-                    "See the README to set both values for your OAuth App."
+                "OAuth is not configured yet. Enter your OAuth App's Client ID and " +
+                    "Client Secret below, or sign in with a personal access token."
             )
         }
 
@@ -75,7 +109,7 @@ object OAuthManager {
         pendingState = state
 
         val url = Uri.parse(AUTHORIZE_URL).buildUpon()
-            .appendQueryParameter("client_id", BuildConfig.GITHUB_CLIENT_ID)
+            .appendQueryParameter("client_id", clientId)
             .appendQueryParameter("redirect_uri", REDIRECT_URI)
             .appendQueryParameter("scope", SCOPES)
             .appendQueryParameter("response_type", "code")
@@ -116,8 +150,8 @@ object OAuthManager {
             }
 
             val body = FormBody.Builder()
-                .add("client_id", BuildConfig.GITHUB_CLIENT_ID)
-                .add("client_secret", BuildConfig.GITHUB_CLIENT_SECRET)
+                .add("client_id", activeClientId)
+                .add("client_secret", activeClientSecret)
                 .add("code", code)
                 .add("redirect_uri", REDIRECT_URI)
                 .add("code_verifier", verifier)
