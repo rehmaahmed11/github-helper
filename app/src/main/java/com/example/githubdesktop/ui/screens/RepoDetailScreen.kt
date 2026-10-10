@@ -57,6 +57,7 @@ fun RepoDetailScreen(
     var editing by remember { mutableStateOf<ContentItem?>(null) }
     var deleting by remember { mutableStateOf<ContentItem?>(null) }
     var showMergeDialog by remember { mutableStateOf<String?>(null) }
+    var showBranchMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentPath, currentBranch) {
         vm.loadContents(owner, name, currentPath, currentBranch)
@@ -314,14 +315,16 @@ fun RepoDetailScreen(
             onConfirm = { merge, deleteAfter ->
                 scope.launch {
                     if (merge) {
-                        val merged = SafHelper.mergeBranch(r, owner, name, baseBranch, working)
-                        if (merged is OpResult.Success) vm.reportNotice(merged.message)
-                        else vm.reportError(merged.message)
+                        when (val merged = SafHelper.mergeBranch(r, owner, name, baseBranch, working)) {
+                            is OpResult.Success -> vm.reportNotice(merged.message)
+                            is OpResult.Failure -> vm.reportError(merged.message)
+                        }
                     }
                     if (deleteAfter) {
-                        val deleted = SafHelper.deleteBranch(r, owner, name, working)
-                        if (deleted is OpResult.Success) vm.reportNotice(deleted.message)
-                        else vm.reportError(deleted.message)
+                        when (val deleted = SafHelper.deleteBranch(r, owner, name, working)) {
+                            is OpResult.Success -> vm.reportNotice(deleted.message)
+                            is OpResult.Failure -> vm.reportError(deleted.message)
+                        }
                     }
                     showMergeDialog = null
                     vm.loadContents(owner, name, currentPath, currentBranch)
