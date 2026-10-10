@@ -80,7 +80,7 @@ fun RepoListScreen(
                 Text(
                     if (repos.isEmpty()) "No repositories yet. Tap + to make one, or refresh " +
                         "with the button above."
-                    else "Nothing matches "$query".",
+                    else "Nothing matches \"$query\".",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp)

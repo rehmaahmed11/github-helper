@@ -1,5 +1,12 @@
 package com.example.githubdesktop.data.api
 
+import com.example.githubdesktop.data.model.TreeEntry
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonElement
+import com.google.gson.JsonSerializer
+import com.google.gson.JsonNull
+import com.google.gson.JsonObject
+import com.google.gson.JsonSerializationContext
 import okhttp3.Headers
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -8,6 +15,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.IOException
+import java.lang.reflect.Type
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
@@ -96,9 +104,30 @@ object GitHubClient {
     val api: GitHubApi = Retrofit.Builder()
         .baseUrl("https://api.github.com/")
         .client(client)
-        .addConverterFactory(GsonConverterFactory.create())
+        .addConverterFactory(
+            // Gson omits null fields by default. That is right for most request bodies (an
+            // absent `sha` means "this file is new"), and wrong for exactly one - a tree entry
+            // whose null sha is the deletion marker - so only that type gets a custom serializer.
+            GsonConverterFactory.create(
+                GsonBuilder().registerTypeAdapter(TreeEntry::class.java, TreeEntrySerializer).create()
+            )
+        )
         .build()
         .create(GitHubApi::class.java)
+}
+
+/** Writes a tree entry, keeping `"sha": null` so GitHub reads it as a removal. */
+private object TreeEntrySerializer : JsonSerializer<TreeEntry> {
+    override fun serialize(
+        src: TreeEntry,
+        typeOfSrc: Type,
+        context: JsonSerializationContext
+    ): JsonElement = JsonObject().apply {
+        addProperty("path", src.path)
+        addProperty("mode", src.mode)
+        addProperty("type", src.type)
+        if (src.sha == null) add("sha", JsonNull.INSTANCE) else addProperty("sha", src.sha)
+    }
 }
 
 /** Adds the credential and the media-type headers GitHub expects on every call. */
@@ -116,7 +145,7 @@ private class HeaderInterceptor : Interceptor {
 private class HeaderRecorder : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val response = chain.proceed(chain.request())
-        remember(response.headers())
+        remember(response.headers)
         return response
     }
 

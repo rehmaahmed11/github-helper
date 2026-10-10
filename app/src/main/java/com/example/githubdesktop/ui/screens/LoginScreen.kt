@@ -220,7 +220,7 @@ fun LoginScreen(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Use "Tokens (classic)", not a fine-grained token: fine-grained tokens need " +
+                "Use \u201cTokens (classic)\u201d, not a fine-grained token: fine-grained tokens need " +
                     "Contents: Write on every repository and cannot create new ones. Paste the " +
                     "token below - it is checked against GitHub before it is stored.",
                 style = MaterialTheme.typography.bodySmall,

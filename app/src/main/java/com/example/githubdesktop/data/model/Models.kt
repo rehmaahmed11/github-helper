@@ -106,8 +106,12 @@ data class BlobBody(val content: String, val encoding: String = "base64")
 data class Blob(val sha: String, val url: String? = null, val size: Int? = null)
 
 /**
- * One entry of a new tree. A [sha] of `null` deletes [path]; `mode` 100644 is an ordinary
- * file, 100755 an executable, 040000 a submodule/gitlink (`type` "commit").
+ * One entry of a new tree. `mode` 100644 is an ordinary file, 100755 an executable,
+ * 040000 a submodule/gitlink (`type` "commit").
+ *
+ * A **null [sha] deletes [path]** - and it has to stay in the JSON as an explicit null, so this
+ * type is serialized by `TreeEntrySerializer`: Gson's default is to *omit* null fields, and
+ * `{"path": "x"}` with no `sha` at all is a 422 from GitHub, not a removal.
  */
 data class TreeEntry(
     val path: String,
